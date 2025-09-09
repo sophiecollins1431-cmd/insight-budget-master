@@ -2,11 +2,12 @@ import { useState, useEffect } from "react";
 import { BalanceCard } from "@/components/BalanceCard";
 import { AddExpenseForm } from "@/components/AddExpenseForm";
 import { ExpenseCard } from "@/components/ExpenseCard";
+import { FilterDialog, FilterOptions } from "@/components/FilterDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
-import { Settings, Filter, Search } from "lucide-react";
+import { Settings, Filter, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 interface Expense {
@@ -26,17 +27,40 @@ export default function Dashboard() {
   const [monthlyIncome, setMonthlyIncome] = useState(4000);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
-  const [searchTerm, setSearchTerm] = useState("");
   const [showIncomeSetup, setShowIncomeSetup] = useState(false);
   const [tempIncome, setTempIncome] = useState(monthlyIncome.toString());
+  const [showFilterDialog, setShowFilterDialog] = useState(false);
+  const [filters, setFilters] = useState<FilterOptions>({ searchTerm: "" });
 
   const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
   const remainingBalance = monthlyIncome - totalExpenses;
 
-  const filteredExpenses = expenses.filter(expense =>
-    expense.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    expense.description?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredExpenses = expenses.filter(expense => {
+    // Search term filter
+    const matchesSearch = !filters.searchTerm || 
+      expense.category.toLowerCase().includes(filters.searchTerm.toLowerCase()) ||
+      expense.description?.toLowerCase().includes(filters.searchTerm.toLowerCase());
+    
+    // Date range filter
+    let matchesDate = true;
+    if (filters.dateFrom || filters.dateTo) {
+      const expenseDate = new Date(expense.date);
+      
+      if (filters.dateFrom) {
+        const fromDate = new Date(filters.dateFrom);
+        fromDate.setHours(0, 0, 0, 0);
+        matchesDate = matchesDate && expenseDate >= fromDate;
+      }
+      
+      if (filters.dateTo) {
+        const toDate = new Date(filters.dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        matchesDate = matchesDate && expenseDate <= toDate;
+      }
+    }
+    
+    return matchesSearch && matchesDate;
+  });
 
   const handleAddExpense = (expenseData: Omit<Expense, 'id'>) => {
     const newExpense: Expense = {
@@ -141,16 +165,55 @@ export default function Dashboard() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 placeholder="Search expenses..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={filters.searchTerm}
+                onChange={(e) => setFilters(prev => ({ ...prev, searchTerm: e.target.value }))}
                 className="pl-10"
               />
             </div>
-            <Button variant="outline" size="sm">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowFilterDialog(true)}
+              className={filters.dateFrom || filters.dateTo || filters.quickFilter ? "border-primary bg-primary/10" : ""}
+            >
               <Filter className="h-4 w-4 mr-2" />
               Filter
+              {(filters.dateFrom || filters.dateTo || filters.quickFilter) && (
+                <span className="ml-1 bg-primary text-primary-foreground rounded-full w-2 h-2 text-xs flex items-center justify-center"></span>
+              )}
             </Button>
+            {(filters.searchTerm || filters.dateFrom || filters.dateTo || filters.quickFilter) && (
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => setFilters({ searchTerm: "" })}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
+          
+          {/* Active Filters Display */}
+          {(filters.dateFrom || filters.dateTo || filters.quickFilter) && (
+            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t">
+              {filters.quickFilter && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary text-xs rounded-full">
+                  {filters.quickFilter.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                </div>
+              )}
+              {filters.dateFrom && !filters.quickFilter && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
+                  From: {new Date(filters.dateFrom).toLocaleDateString()}
+                </div>
+              )}
+              {filters.dateTo && !filters.quickFilter && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
+                  To: {new Date(filters.dateTo).toLocaleDateString()}
+                </div>
+              )}
+            </div>
+          )}
         </Card>
 
         {/* Expenses List */}
@@ -165,7 +228,9 @@ export default function Dashboard() {
           {filteredExpenses.length === 0 ? (
             <Card className="p-8 text-center">
               <p className="text-muted-foreground">
-                {searchTerm ? 'No expenses match your search.' : 'No expenses yet. Add your first expense above!'}
+                {(filters.searchTerm || filters.dateFrom || filters.dateTo || filters.quickFilter) 
+                  ? 'No expenses match your filters.' 
+                  : 'No expenses yet. Add your first expense above!'}
               </p>
             </Card>
           ) : (
@@ -179,6 +244,15 @@ export default function Dashboard() {
             ))
           )}
         </div>
+
+        {/* Filter Dialog */}
+        <FilterDialog
+          isOpen={showFilterDialog}
+          onClose={() => setShowFilterDialog(false)}
+          filters={filters}
+          onFiltersChange={setFilters}
+          categories={categories}
+        />
       </div>
     </div>
   );
