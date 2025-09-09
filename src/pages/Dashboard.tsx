@@ -3,11 +3,13 @@ import { BalanceCard } from "@/components/BalanceCard";
 import { AddExpenseForm } from "@/components/AddExpenseForm";
 import { ExpenseCard } from "@/components/ExpenseCard";
 import { FilterDialog, FilterOptions } from "@/components/FilterDialog";
+import { InsightsCard } from "@/components/InsightsCard";
+import { AuthPrompt } from "@/components/AuthPrompt";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
-import { Settings, Filter, Search, X } from "lucide-react";
+import { Settings, Filter, Search, X, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 
 interface Expense {
@@ -16,6 +18,16 @@ interface Expense {
   amount: number;
   date: string;
   description?: string;
+  location?: {
+    lat: number;
+    lng: number;
+    address?: string;
+  };
+}
+
+interface MonthlyBudget {
+  month: string; // YYYY-MM format
+  income: number;
 }
 
 const DEFAULT_CATEGORIES = [
@@ -25,15 +37,22 @@ const DEFAULT_CATEGORIES = [
 
 export default function Dashboard() {
   const [monthlyIncome, setMonthlyIncome] = useState(4000);
+  const [monthlyBudgets, setMonthlyBudgets] = useState<MonthlyBudget[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [showIncomeSetup, setShowIncomeSetup] = useState(false);
   const [tempIncome, setTempIncome] = useState(monthlyIncome.toString());
+  const [budgetMonths, setBudgetMonths] = useState(1);
   const [showFilterDialog, setShowFilterDialog] = useState(false);
   const [filters, setFilters] = useState<FilterOptions>({ searchTerm: "" });
+  const [showInsights, setShowInsights] = useState(false);
 
-  const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const remainingBalance = monthlyIncome - totalExpenses;
+  // Get current month expenses and budget
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonthBudget = monthlyBudgets.find(b => b.month === currentMonth)?.income || monthlyIncome;
+  const currentMonthExpenses = expenses.filter(e => e.date.slice(0, 7) === currentMonth);
+  const totalExpenses = currentMonthExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const remainingBalance = currentMonthBudget - totalExpenses;
 
   const filteredExpenses = expenses.filter(expense => {
     // Search term filter
@@ -94,8 +113,24 @@ export default function Dashboard() {
     const newIncome = parseFloat(tempIncome);
     if (newIncome > 0) {
       setMonthlyIncome(newIncome);
+      
+      // Create budgets for the specified number of months
+      const budgets: MonthlyBudget[] = [];
+      const startDate = new Date();
+      
+      for (let i = 0; i < budgetMonths; i++) {
+        const monthDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
+        const monthKey = monthDate.toISOString().slice(0, 7);
+        budgets.push({ month: monthKey, income: newIncome });
+      }
+      
+      setMonthlyBudgets(prev => {
+        const existing = prev.filter(b => !budgets.some(nb => nb.month === b.month));
+        return [...existing, ...budgets];
+      });
+      
       setShowIncomeSetup(false);
-      toast.success(`Updated monthly income to $${newIncome.toFixed(2)}`);
+      toast.success(`Updated income to $${newIncome.toFixed(2)} for ${budgetMonths} month${budgetMonths > 1 ? 's' : ''}`);
     }
   };
 
@@ -108,22 +143,35 @@ export default function Dashboard() {
             <h1 className="text-3xl font-bold text-foreground">Smart Expense Tracker</h1>
             <p className="text-muted-foreground">Track your expenses and manage your budget</p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowIncomeSetup(!showIncomeSetup)}
-          >
-            <Settings className="h-4 w-4 mr-2" />
-            Setup
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowInsights(!showInsights)}
+            >
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Insights
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowIncomeSetup(!showIncomeSetup)}
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Setup
+            </Button>
+          </div>
         </div>
+
+        {/* Authentication Prompt */}
+        <AuthPrompt />
 
         {/* Income Setup */}
         {showIncomeSetup && (
           <Card className="p-4 mb-6 animate-slide-up">
-            <h3 className="font-semibold mb-3">Monthly Income Setup</h3>
-            <div className="flex gap-2">
-              <div className="flex-1">
+            <h3 className="font-semibold mb-3">Monthly Income & Budget Setup</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
                 <Label htmlFor="income">Monthly Income ($)</Label>
                 <Input
                   id="income"
@@ -134,8 +182,23 @@ export default function Dashboard() {
                   placeholder="Enter your monthly income"
                 />
               </div>
+              <div>
+                <Label htmlFor="months">Number of Months</Label>
+                <Input
+                  id="months"
+                  type="number"
+                  min="1"
+                  max="24"
+                  value={budgetMonths}
+                  onChange={(e) => setBudgetMonths(parseInt(e.target.value) || 1)}
+                  placeholder="1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Set budget for {budgetMonths} month{budgetMonths > 1 ? 's' : ''} ahead
+                </p>
+              </div>
               <div className="flex items-end gap-2">
-                <Button onClick={handleUpdateIncome}>Update</Button>
+                <Button onClick={handleUpdateIncome} className="flex-1">Update</Button>
                 <Button variant="outline" onClick={() => setShowIncomeSetup(false)}>
                   Cancel
                 </Button>
@@ -146,10 +209,13 @@ export default function Dashboard() {
 
         {/* Balance Overview */}
         <BalanceCard
-          monthlyIncome={monthlyIncome}
+          monthlyIncome={currentMonthBudget}
           totalExpenses={totalExpenses}
           remainingBalance={remainingBalance}
         />
+
+        {/* Insights */}
+        {showInsights && <InsightsCard expenses={expenses} />}
 
         {/* Add Expense Form */}
         <AddExpenseForm
